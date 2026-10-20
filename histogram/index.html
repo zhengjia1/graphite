@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101010">
+<title>Graphite Histogram</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<style>
+  /* Look & feel follows zhengjia.dev (cdn.zhengjia.dev/search/styles2.min.css + graphite/index-*.css),
+     but as one responsive layout instead of separate desktop / mobile pages. */
+  @font-face {
+    font-family: "Adobe Clean";
+    src: url("https://cdn.zhengjia.dev/fonts/Adobe-Clean.otf");
+    font-display: swap;
+  }
+  :root {
+    --text: #fffff7;
+    --paper: #faf9f6;
+    --gray: #808080;
+    --ink: #010201;
+    --violet: #402fb5;
+    --pink: #cf30aa;
+    --error: #ff8a80;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    font-family: "Adobe Clean", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--text);
+    background-color: #101010;
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+  /* darken the photo so white text stays readable on any image */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1;
+    background: linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.55));
+  }
+  a { color: var(--text); }
+
+  /* ---------- Input screen ---------- */
+  #setup {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px 16px calc(40px + env(safe-area-inset-bottom));
+  }
+  .greetings { text-align: center; margin: 0 0 22px; font-weight: 600; font-size: 22px; text-shadow: 0 1px 6px rgba(0,0,0,.4); }
+  .panel { width: 100%; max-width: 340px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+
+  /* glowing gradient border, after the site's #poda search box */
+  .input {
+    width: 100%; height: 40px; padding: 0 12px;
+    font: inherit; font-size: 17px; text-align: center; color: #fff;
+    border: 2px solid transparent; border-radius: 12px; outline: none;
+    background:
+      linear-gradient(var(--ink), var(--ink)) padding-box,
+      conic-gradient(from 200deg, #1c191c, var(--violet) 8%, #1c191c 20%, #1c191c 50%, var(--pink) 60%, #1c191c 70%) border-box;
+    box-shadow: 0 0 18px -6px var(--violet);
+    transition: box-shadow .4s;
+  }
+  .input::placeholder { color: #c0b9c0; }
+  .input:focus { box-shadow: 0 0 22px -2px var(--pink); }
+
+  /* segmented toggle, after the site's .slider2 */
+  .toggle {
+    position: relative; display: flex; width: 100%; height: 34px; padding: 3px;
+    background: var(--paper); border-radius: 8px;
+  }
+  .toggle::before {
+    content: ""; position: absolute; top: 3px; left: 3px; bottom: 3px; width: calc(50% - 3px);
+    background: var(--gray); border-radius: 5px; transition: transform .3s ease;
+  }
+  .toggle.paste::before { transform: translateX(100%); }
+  .toggle button {
+    position: relative; flex: 1; border: none; background: none; cursor: pointer;
+    font: inherit; font-size: 15px; color: var(--gray); transition: color .3s;
+  }
+  .toggle button.active { color: var(--text); }
+
+  /* upload box, after the site's .file-upload-label */
+  .file-upload-label {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 190px; height: 190px; padding: 12px; text-align: center;
+    background: var(--paper); border-radius: 15px; cursor: pointer;
+    border: 2px dashed transparent; transition: border-color .2s, transform .2s;
+  }
+  .file-upload-label.over { border-color: var(--gray); transform: scale(1.03); }
+  .file-upload-label svg { height: 50px; fill: var(--gray); }
+  .file-upload-label p { color: var(--gray); margin: 6px 0; font-size: 15px; line-height: 1.25; }
+  .file-upload-label .filename { color: #333; font-weight: 600; word-break: break-all; }
+  .browse-button { background: var(--gray); color: var(--paper); padding: 5px 15px; border-radius: 10px; font-size: 15px; }
+  #file { display: none; }
+  /* no drag-and-drop on touch screens */
+  @media (hover: none) { .dnd { display: none; } }
+
+  textarea {
+    width: 100%; min-height: 190px; resize: vertical; padding: 10px 12px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px; white-space: pre;
+    color: #333; background: var(--paper); border: none; border-radius: 15px; outline: none;
+  }
+  .hint { font-size: 13px; text-align: center; line-height: 1.35; margin: -4px 0 0; opacity: .85; text-shadow: 0 1px 4px rgba(0,0,0,.5); }
+
+  .submit_btn {
+    height: 36px; min-width: 110px; padding: 0 18px;
+    font: inherit; font-size: 18px; color: #333; background: var(--paper);
+    border: none; border-radius: 8px; cursor: pointer;
+  }
+  #error { color: var(--error); font-size: 15px; text-align: center; min-height: 1.2em; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+  .footer {
+    position: fixed; left: 0; right: 0; bottom: calc(5px + env(safe-area-inset-bottom));
+    margin: 0; text-align: center; font-size: 13px; opacity: .8;
+  }
+
+  /* ---------- Graph screen ---------- */
+  #viewer {
+    display: none; flex-direction: column;
+    position: fixed; inset: 0;              /* fills the visible viewport on desktop and phones alike */
+    background: #fff;
+  }
+  #viewer.show { display: flex; }
+  .toolbar {
+    display: flex; gap: 8px; align-items: center; justify-content: flex-end;
+    padding: 8px 16px; padding-top: calc(8px + env(safe-area-inset-top));
+    background: #101010; color: var(--text);
+  }
+  .toolbar button {
+    flex: none; height: 32px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+    font: inherit; font-size: 15px; color: var(--text); background: transparent; border: 1px solid var(--gray);
+  }
+  .toolbar button.save { background: var(--paper); color: #333; border-color: var(--paper); }
+  .toolbar button:disabled { opacity: .5; cursor: default; }
+  .toolbar .status { flex: 1; min-width: 0; font-size: 14px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toolbar .status.error { color: var(--error); opacity: 1; }
+  #frame { flex: 1; width: 100%; border: none; background: #fff; padding-bottom: env(safe-area-inset-bottom); }
+
+  /* Turnstile check + share link dialogs */
+  .overlay {
+    position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center;
+    padding: 16px; background: rgba(0,0,0,.55);
+  }
+  .overlay.show { display: flex; }
+  .dialog {
+    width: 100%; max-width: 420px; padding: 20px; border-radius: 15px;
+    background: #181818; color: var(--text); text-align: center;
+  }
+  .dialog h3 { margin: 0 0 6px; font-size: 19px; }
+  .dialog p { margin: 0 0 14px; font-size: 14px; opacity: .85; }
+  .dialog .link-row { display: flex; gap: 8px; }
+  .dialog .link-row .input { flex: 1; min-width: 0; height: 36px; font-size: 14px; text-align: left; }
+  /* gradient border + glow only while focused; plain border at rest */
+  .input:not(:focus) {
+    background: linear-gradient(var(--ink), var(--ink)) padding-box, linear-gradient(#333, #333) border-box;
+    box-shadow: none;
+  }
+  .dialog button {
+    height: 36px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+    font: inherit; font-size: 15px; color: #333; background: var(--paper); border: none;
+  }
+  .dialog .close { margin-top: 14px; background: transparent; color: var(--text); border: 1px solid var(--gray); }
+  #ts-box { display: flex; justify-content: center; min-height: 65px; }
+
+
+  /* sample datasets */
+  .link-btn {
+    border: none; background: none; padding: 4px; cursor: pointer;
+    font: inherit; font-size: 15px; color: var(--text); text-decoration: underline; text-underline-offset: 3px;
+    text-shadow: 0 1px 4px rgba(0,0,0,.6);
+  }
+  .samples-list { display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow-y: auto; text-align: left; }
+  .samples-list .sample {
+    display: block; width: 100%; height: auto; padding: 10px 12px; text-align: left;
+    background: #242424; color: var(--text); border: 1px solid #333; border-radius: 10px;
+  }
+  .samples-list .sample:hover { border-color: var(--gray); }
+  .samples-list .sample b { display: block; font-size: 15px; }
+  .samples-list .sample span { display: block; font-size: 12px; opacity: .7; margin-top: 2px; }
+  .samples-list .msg { font-size: 14px; opacity: .85; text-align: center; padding: 12px 0; }
+  .sample-row { display: flex; gap: 6px; align-items: stretch; }
+  .sample-row .sample { flex: 1; min-width: 0; }
+  .sample-dl {
+    flex: none; display: flex; align-items: center; padding: 0 10px; border-radius: 10px;
+    font-size: 13px; color: var(--text); background: #242424; border: 1px solid #333; text-decoration: none;
+  }
+  .sample-dl:hover { border-color: var(--gray); }
+  .samples-msg { margin: 10px 0 0; min-height: 1em; font-size: 14px; color: var(--error); }
+
+  @media (max-width: 480px) {
+    .greetings { font-size: 19px; }
+    .toolbar { padding-left: 12px; padding-right: 12px; gap: 6px; }
+    .toolbar button { padding: 0 10px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<main id="setup">
+  <h2 class="greetings" id="greetings">Upload a spreadsheet or paste data to start.</h2>
+
+  <div class="panel">
+    <input type="text" id="header" class="input" placeholder="Graph Title" autocomplete="off">
+    <input type="text" id="xaxis" class="input" placeholder="X-Axis Title" autocomplete="off">
+    <input type="text" id="yaxis" class="input" placeholder="Y-Axis Title" autocomplete="off">
+
+    <div class="toggle" id="toggle" role="tablist">
+      <button type="button" class="active" data-mode="file">Upload file</button>
+      <button type="button" data-mode="paste">Paste data</button>
+    </div>
+
+    <div id="mode-file">
+      <label id="drop" class="file-upload-label" for="file">
+        <svg viewBox="0 0 640 512"><path d="M144 480C64.5 480 0 415.5 0 336c0-62.8 40.2-116.2 96.2-135.9c-.1-2.7-.2-5.4-.2-8.1c0-88.4 71.6-160 160-160c59.3 0 111 32.2 138.7 80.2C409.9 102 428.3 96 448 96c53 0 96 43 96 96c0 12.2-2.3 23.8-6.4 34.6C596 238.4 640 290.1 640 352c0 70.7-57.3 128-128 128H144zm79-217c-9.4 9.4-9.4 24.6 0 33.9s24.6 9.4 33.9 0l39-39V392c0 13.3 10.7 24 24 24s24-10.7 24-24V257.9l39 39c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-80-80c-9.4-9.4-24.6-9.4-33.9 0l-80 80z"/></svg>
+        <p id="drop-text"><span class="dnd">Drag and Drop,<br>or</span></p>
+        <span class="browse-button">Browse file</span>
+      </label>
+      <input type="file" id="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+    </div>
+
+    <div id="mode-paste" hidden style="width:100%">
+      <textarea id="paste" spellcheck="false" placeholder="Shoe size (US)	Women
+4.5	3
+5	4
+5.5	5
+6	8"></textarea>
+    </div>
+    <p class="hint" id="hint">.xlsx or .csv, up to 10 MB. First column = bins (e.g. age groups or price ranges), next column = counts. Extra columns are drawn as grouped bars. Your data stays on your device unless you choose Save to Cloud.</p>
+
+    <button type="button" class="submit_btn" id="go">Submit</button>
+    <div id="error"></div>
+    <button type="button" class="link-btn" id="samples-open">No data? Try a sample dataset</button>
+  </div>
+  <p class="footer">histogram · ver: 1.0.0</p>
+</main>
+
+<div id="viewer">
+  <div class="toolbar">
+    <span class="status" id="status" role="status"></span>
+    <button type="button" class="save" id="save">Download</button>
+    <button type="button" class="save" id="cloud">Save to Cloud</button>
+    <button type="button" id="back">New</button>
+    <button type="button" id="copy" hidden>Create your own copy</button>
+  </div>
+  <!-- sandboxed: graphs opened from share links contain other people's data -->
+  <iframe id="frame" title="Graph" sandbox="allow-scripts allow-popups"></iframe>
+</div>
+
+<div class="overlay" id="ts-overlay">
+  <div class="dialog">
+    <h3>Quick check</h3>
+    <p>Confirming you're human before uploading.</p>
+    <div id="ts-box"></div>
+    <button type="button" class="close" id="ts-cancel">Cancel</button>
+  </div>
+</div>
+
+<div class="overlay" id="samples-overlay">
+  <div class="dialog">
+    <h3>Sample datasets</h3>
+    <p>Official Singapore open data. Pick one to graph it.</p>
+    <div id="samples-list" class="samples-list"></div>
+    <p class="samples-msg" id="samples-msg" role="status"></p>
+    <button type="button" class="close" id="samples-close">Close</button>
+  </div>
+</div>
+
+<div class="overlay" id="share-overlay">
+  <div class="dialog">
+    <h3>Saved to cloud</h3>
+    <p>Anyone with this link can view the graph.</p>
+    <div class="link-row">
+      <input type="text" class="input" id="share-link" readonly>
+      <button type="button" id="share-copy">Copy</button>
+    </div>
+    <button type="button" class="close" id="share-close">Done</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ---------- Cloud config ----------
+  var CLOUD_API = "https://graphite-upload.zhengjia.workers.dev"; // the deployed graphite-worker.js
+  var TURNSTILE_SITEKEY = "0x4AAAAAAA453-5HWNT5ifN0";                  // must list this page's domain
+  var ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+  var mode = "file";
+  var fileRows = null;      // rows parsed from the chosen file
+  var fileName = "";
+  var graphHtml = "";       // standalone HTML of the current graph
+  var graphTitle = "";
+  var current = null;       // { title, titles: { x, y }, ds } of the graph on screen
+  var cloudId = null;       // id once the current graph is saved to the cloud
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---------- Site chrome: random background + greeting (as on zhengjia.dev) ----------
+  var backgrounds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 20, 21, 22, 23];
+  document.body.style.backgroundImage = "url('https://cdn.zhengjia.dev/static/" +
+    backgrounds[Math.floor(Math.random() * backgrounds.length)] + ".jpg')";
+
+  var hour = new Date().getHours();
+  var hello = hour >= 4 && hour < 12 ? "Good morning!" : hour >= 12 && hour < 19 ? "Good afternoon!" : "Good evening!";
+  $("greetings").textContent = hello + " Upload a spreadsheet or paste data to start.";
+
+  // ---------- Mode toggle ----------
+  var hints = {
+    file: ".xlsx or .csv, up to 10 MB. First column = bins (e.g. age groups or price ranges), next column = counts. Extra columns are drawn as grouped bars. Your data stays on your device unless you choose Save to Cloud.",
+    paste: "Copy cells from Excel / Google Sheets, or paste CSV. First column = bins (e.g. age groups or price ranges), next column = counts. Extra columns are drawn as grouped bars."
+  };
+  document.querySelectorAll("#toggle button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      mode = btn.dataset.mode;
+      document.querySelectorAll("#toggle button").forEach(function (b) { b.classList.toggle("active", b === btn); });
+      $("toggle").classList.toggle("paste", mode === "paste");
+      $("mode-file").hidden = mode !== "file";
+      $("mode-paste").hidden = mode !== "paste";
+      $("hint").textContent = hints[mode];
+      showError("");
+    });
+  });
+
+  // ---------- File input / drag-and-drop ----------
+  var drop = $("drop");
+  ["dragenter", "dragover"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("over"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("over"); });
+  });
+  drop.addEventListener("drop", function (e) {
+    var files = e.dataTransfer.files;
+    if (files.length > 1) return rejectFile("Drop one file at a time.");
+    if (files.length) readFile(files[0]);
+  });
+  $("file").addEventListener("change", function (e) {
+    if (e.target.files.length) readFile(e.target.files[0]);
+  });
+
+  // ---------- File validation: only real .xlsx / .csv files ----------
+  var MAX_FILE_MB = 10;
+  var MAX_ROWS = 10000;   // the chart gets sluggish well before this
+  var MAX_SERIES = 100;
+  var DROP_TEXT = $("drop-text").innerHTML;
+
+  function readFile(file) {
+    showError("");
+    var ext = (file.name.match(/\.([^.]+)$/) || [])[1];
+    ext = ext ? ext.toLowerCase() : "";
+    if (ext !== "xlsx" && ext !== "csv") {
+      return rejectFile("Only .xlsx (Excel) and .csv files are supported" + (ext ? " — this is a ." + ext + " file." : "."));
+    }
+    if (file.size === 0) return rejectFile("That file is empty.");
+    if (file.size > MAX_FILE_MB * 1024 * 1024) return rejectFile("That file is over " + MAX_FILE_MB + " MB.");
+
+    var reader = new FileReader();
+    reader.onerror = function () { rejectFile("Couldn't open that file."); };
+    reader.onload = function () {
+      var bytes = new Uint8Array(reader.result);
+      try {
+        var wb = ext === "xlsx" ? readXlsx(bytes) : readCsv(bytes);
+        var rows = sheetRows(wb);
+        toHistogramDataset(rows); // check the table now, not only at Submit
+        fileRows = rows;
+        fileName = file.name;
+        $("drop-text").innerHTML = '<span class="filename"></span><br>' + (file.size / 1024 / 1024).toFixed(2) + " MB";
+        $("drop-text").querySelector(".filename").textContent = file.name;
+      } catch (err) {
+        rejectFile(err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function rejectFile(msg) {
+    fileRows = null;
+    fileName = "";
+    $("file").value = ""; // so choosing the same file again still triggers a change
+    $("drop-text").innerHTML = DROP_TEXT;
+    showError(msg);
+  }
+
+  // .xlsx is a zip ("PK\3\4") holding xl/workbook.xml; anything else renamed to .xlsx is refused.
+  function readXlsx(bytes) {
+    var isZip = bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+    if (!isZip) throw new Error(looksLikeOldXls(bytes)
+      ? "That's an old .xls file. Open it in Excel and save it as .xlsx."
+      : "That file isn't a real Excel workbook, even though it's named .xlsx.");
+    // zip entry names are stored as plain text; Word files, .ods etc. have no xl/workbook.xml
+    if (!containsAscii(bytes, "xl/workbook.xml")) {
+      throw new Error("That file isn't an Excel workbook (it may be a Word, Numbers or OpenOffice file renamed to .xlsx).");
+    }
+    var wb;
+    try {
+      wb = XLSX.read(bytes, { type: "array", raw: true, cellNF: true });
+    } catch (e) {
+      throw new Error("That Excel file looks damaged or password-protected.");
+    }
+    if (!wb || !wb.SheetNames || !wb.SheetNames.length) throw new Error("That file isn't a real Excel workbook.");
+    return wb;
+  }
+  function containsAscii(bytes, needle) {
+    var first = needle.charCodeAt(0), n = needle.length;
+    outer: for (var i = 0; i <= bytes.length - n; i++) {
+      if (bytes[i] !== first) continue;
+      for (var j = 1; j < n; j++) if (bytes[i + j] !== needle.charCodeAt(j)) continue outer;
+      return true;
+    }
+    return false;
+  }
+  function looksLikeOldXls(bytes) {
+    return bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0;
+  }
+
+  // .csv must be plain text. Decoded as UTF-8, falling back to Windows-1252 for older Excel exports.
+  function readCsv(bytes) {
+    var head = bytes.subarray(0, 65536);
+    if (looksLikeOldXls(bytes) || (bytes[0] === 0x50 && bytes[1] === 0x4b)) {
+      throw new Error("That's an Excel file named .csv. Rename it to .xlsx, or export it as CSV.");
+    }
+    for (var i = 0; i < head.length; i++) {
+      if (head[i] === 0) throw new Error("That file isn't a text CSV file.");
+    }
+    var text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (e) {
+      text = new TextDecoder("windows-1252").decode(bytes);
+    }
+    text = text.replace(/^﻿/, "");
+    if (/^\s*</.test(text)) throw new Error("That file is a web page or XML, not a CSV.");
+    return XLSX.read(text.replace(/\r\n?/g, "\n"), { type: "string", raw: true });
+  }
+
+  // ---------- Spreadsheet -> rows of cells ----------
+  // Rows hold SheetJS cell objects ({ t: type, v: value, w: displayed text }) so labels can keep
+  // what Excel shows ("1-May-24") while values use the underlying number ($1,234.50 -> 1234.5).
+  function sheetRows(wb) {
+    // first sheet that actually has data (some workbooks start with an empty or cover sheet)
+    for (var s = 0; s < wb.SheetNames.length; s++) {
+      var rows = sheetToRows(wb.Sheets[wb.SheetNames[s]]);
+      if (rows.filter(function (row) { return row.some(hasText); }).length >= 2) return rows;
+    }
+    return [];
+  }
+
+  function sheetToRows(ws) {
+    if (!ws || !ws["!ref"]) return [];
+    var range = XLSX.utils.decode_range(ws["!ref"]);
+    var rows = [];
+    for (var r = range.s.r; r <= range.e.r; r++) {
+      var row = [];
+      for (var c = range.s.c; c <= range.e.c; c++) row.push(ws[XLSX.utils.encode_cell({ r: r, c: c })] || null);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  // raw: keep text as typed ("1-May-24" must not be reinterpreted and shown as "5/1/24")
+  function parsePasted(text) {
+    return sheetRows(XLSX.read(text.replace(/\r\n?/g, "\n"), { type: "string", raw: true }));
+  }
+
+  // What Excel displays in the cell, tidied up ("" for blanks and errors like #DIV/0!).
+  function cellText(cell) {
+    if (!cell || cell.t === "e" || cell.t === "z") return "";
+    if (cell.t === "n" && isDefaultDateFormat(cell.z)) return defaultDateText(cell.v);
+    var s = cell.w != null ? cell.w : cell.v != null ? cell.v : "";
+    return String(s).replace(/[  ]/g, " ").replace(/\s+/g, " ").trim();
+  }
+  function hasText(cell) { return cellText(cell) !== ""; }
+
+  // Excel's built-in short date (format 14) follows the viewer's locale inside Excel, but the
+  // parser always renders it US-style (5/1/24). Show an unambiguous "1 May 2024" instead.
+  function isDefaultDateFormat(z) {
+    return typeof z === "string" && /^m\/d\/yy(yy)?$/i.test(z);
+  }
+  function defaultDateText(serial) {
+    var d = XLSX.SSF.parse_date_code(serial);
+    if (!d) return String(serial);
+    return new Date(d.y, d.m - 1, d.d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  // A cell's numeric value as a string, or "" if it isn't a number.
+  function cellNumber(cell) {
+    if (!cell || cell.t === "e" || cell.t === "b" || cell.t === "z") return "";
+    if (cell.t === "n") {
+      var v = cell.v;
+      if (/%\s*$/.test(cell.w || "")) v = +(v * 100).toPrecision(12); // 0.25 shown as 25% -> 25
+      return String(v);
+    }
+    return parseNumberText(cellText(cell));
+  }
+
+  // Numbers typed or imported as text: "$1,234.50", "(500)", "S$ 2,000", "12.5%", "1.234,56", "1.2E+05".
+  function parseNumberText(s) {
+    s = s.replace(/[\s']/g, "");
+    if (!s) return "";
+    if (/^[-+]?\d*\.?\d+e[-+]?\d+$/i.test(s)) return String(Number(s));
+    var negative = /^\(.*\)$/.test(s) || /^[-−]|[-−]$/.test(s.replace(/[^0-9.,\-−]/g, ""));
+    s = s.replace(/[^0-9.,]/g, "");
+    if (!/\d/.test(s)) return "";
+    var dot = s.lastIndexOf("."), comma = s.lastIndexOf(",");
+    if (dot > -1 && comma > -1) {
+      s = comma > dot ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, ""); // 1.234,56 vs 1,234.56
+    } else if (comma > -1) {
+      s = /^\d{1,3}(,\d{3})+$/.test(s) ? s.replace(/,/g, "") : s.replace(",", ".");   // 1,234 vs 1,5
+    } else if ((s.match(/\./g) || []).length > 1) {
+      s = s.replace(/\./g, "");                                                        // 1.234.567
+    }
+    var n = parseFloat(s);
+    if (isNaN(n)) return "";
+    return String(negative ? -n : n);
+  }
+
+  // ---------- Rows -> Flourish data (same layout the Flask version expected) ----------
+  // Header row = series names; first column = x labels; the rest = one series per column.
+  function toDataset(rows) {
+    rows = (rows || []).filter(function (r) { return r.some(hasText); });
+    // skip title lines above the table: the header is the first row with 2+ filled cells
+    var start = 0;
+    while (start < rows.length && rows[start].filter(hasText).length < 2) start++;
+    if (rows.length && start === rows.length) {
+      throw new Error("Need at least two columns: labels in the first, numbers in the columns after it.");
+    }
+    rows = rows.slice(start);
+    if (rows.length < 2) throw new Error("Need a header row and at least one data row.");
+
+    // drop columns that are completely empty (cleared-but-formatted columns still count toward
+    // the sheet's range); the first remaining column holds the labels
+    var width = 0;
+    rows.forEach(function (r) { width = Math.max(width, r.length); });
+    var used = [];
+    for (var c = 0; c < width; c++) {
+      if (rows.some(function (r) { return hasText(r[c]); })) used.push(c);
+    }
+    var labelCol = used[0], valueCols = used.slice(1);
+    if (!valueCols.length) throw new Error("Need at least two columns: labels in the first, values after.");
+
+    var header = rows[0];
+    var columns = valueCols.map(function (c, k) { return cellText(header[c]) || "Series " + (k + 1); });
+
+    var data = [];
+    for (var i = 1; i < rows.length; i++) {
+      var label = cellText(rows[i][labelCol]);
+      if (!label || label.charAt(0) === "=") continue;
+      if (/^(grand\s+)?(totals?|sum|subtotal)$/i.test(label)) continue; // totals row would dwarf the series
+      var values = valueCols.map(function (c) { return cellNumber(rows[i][c]); });
+      if (values.every(function (v) { return v === ""; })) continue;    // notes like "Source: ..."
+      data.push({ label: label, value: values });
+    }
+    // rows without a single number were skipped above, so an empty list means nothing to plot
+    if (!data.length) throw new Error("No numbers found to plot. Put labels in the first column and numbers in the columns after it.");
+    if (data.length > MAX_ROWS) throw new Error("Too many rows to graph (" + data.length + "). The limit is " + MAX_ROWS + ".");
+    if (columns.length > MAX_SERIES) throw new Error("Too many series (" + columns.length + "). The limit is " + MAX_SERIES + ".");
+    return { columns: columns, data: data, labelType: guessLabelType(data) };
+  }
+
+  // A histogram: one bar per bin (row); every number column is a series.
+  function toHistogramDataset(rows) {
+    return toDataset(rows);
+  }
+
+  // Labels are shown exactly as Excel displays them. Only plain years (2021, 2022...) are left
+  // for the chart to treat as time; anything else ("May 1", "1-May-24", "Q3") stays as text
+  // so it isn't misread as a year.
+  function guessLabelType(data) {
+    return data.every(function (d) { return /^\d{4}$/.test(d.label); }) ? "auto" : "string";
+  }
+
+  // ---------- Build the standalone graph page ----------
+  function js(v) {
+    // JSON that is safe to drop inside a <script> block
+    return JSON.stringify(v).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
+  }
+
+  // Chart files: the Flourish "Line, bar and pie charts" template, shared with Graphite Combo.
+  var CHART_STATIC = "https://cdn.zhengjia.dev/graphite/combo/";
+
+  function buildGraphHtml(title, titles, ds) {
+    var toNum = function (v) { return v === "" || v == null ? null : +v; };
+    // bins are categories ("4.5", "20 - 24 Years", "$450k–$500k"), so labels stay text
+    var data = ds.data.map(function (d) {
+      return { label: String(d.label), metadata: [], value: d.value.map(toNum) };
+    });
+    var settings = {
+      "chart_type": "column_grouped",
+      "color.categorical_palette": ["#135ae1", "#2197ff", "#9852d9", "#f54e8b", "#fa6502", "#f2b90f", "#058896", "#09aa64", "#de2c35", "#a7abaf", "#808080"],
+      "data_trans_duration": 1500,
+      "facet_layout": "single",
+      "labels": true,
+      "labels_column_align": "above",
+      "layout.title": title,
+      // one series: no legend (as in the Flourish export); several: show which bar is which
+      "legend_mode": ds.columns.length > 1 ? "auto" : "off",
+      "x.title": titles.x,
+      "y.title": titles.y,
+      "layout.footer_logo_enabled": false,
+      "layout.header_logo_enabled": false,
+      // same font as Graphite's line charts (the template defaults to Canva Sans)
+      "layout.body_font": { name: "Source Sans Pro", url: "https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700" }
+    };
+    var numberMeta = { type: "number", type_id: "number$none_point", output_format_id: "number$comma_point" };
+    var columnNames = { data: { label: "Bin", metadata: [], value: ds.columns } };
+    var metadata = {
+      data: {
+        label: { type: "string", type_id: "string$arbitrary_string", output_format_id: "string$arbitrary_string" },
+        metadata: [],
+        value: ds.columns.map(function () { return numberMeta; })
+      }
+    };
+    var S = "script";
+    // Page tags are split ("</" + "body>") so dev servers that inject a script before the first
+    // closing body tag in the file (e.g. VS Code Live Server) don't inject it into this string.
+    return '<!DOCTYPE html>\n<html>\n<' + 'head>\n<meta charset="utf-8">\n' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+      "<title>" + esc(title || "Graph") + "</title>\n" +
+      '<link rel="stylesheet" href="' + CHART_STATIC + 'choices.min.css">\n' +
+      '<link rel="stylesheet" type="text/css" href="' + CHART_STATIC + 'bundle.css">\n' +
+      '<style id="choices-styles"></style>\n</' + 'head>\n<' + 'body style="transform: translateZ(0)">\n' +
+      "<" + S + '>window.Flourish = ' + js({ static_prefix: CHART_STATIC.replace(/\/$/, ""), environment: "live", is_read_only: true }) + ';</' + S + ">\n" +
+      "<" + S + ' src="' + CHART_STATIC + 'template.js"></' + S + ">\n" +
+      // same embed script as Graphite's line charts
+      "<" + S + ' src="https://cdn.zhengjia.dev/graph/static/embedded.js"></' + S + ">\n" +
+      "<" + S + ">\n" +
+      "function _Flourish_unflattenInto(dest, src) {\n" +
+      "  dest = dest || {};\n" +
+      "  for (var k in src) {\n" +
+      "    var t = dest;\n" +
+      "    for (var i = k.indexOf(\".\"), p = 0; i >= 0; i = k.indexOf(\".\", p = i + 1)) {\n" +
+      "      var s = k.substring(p, i);\n" +
+      "      if (!(s in t)) t[s] = {};\n" +
+      "      t = t[s];\n" +
+      "    }\n" +
+      "    t[k.substring(p)] = src[k];\n" +
+      "  }\n" +
+      "  return dest;\n" +
+      "}\n" +
+      "_Flourish_unflattenInto(window.template.state, " + js(settings) + ");\n" +
+      "var _Flourish_data_column_names = " + js(columnNames) + ",\n" +
+      "    _Flourish_data_metadata = " + js(metadata) + ",\n" +
+      "    _Flourish_data = { data: " + js(data) + " };\n" +
+      "for (var _d in _Flourish_data) {\n" +
+      "  window.template.data[_d] = _Flourish_data[_d];\n" +
+      "  window.template.data[_d].column_names = _Flourish_data_column_names[_d];\n" +
+      "  window.template.data[_d].metadata = _Flourish_data_metadata[_d];\n" +
+      "}\n" +
+      // Fill the window. embedded.js decides fixed_height by reading the parent page's URL, which
+      // the sandbox can block; it then falls back to a set height by width (400px on phones,
+      // 650px on desktop) and leaves the rest of the screen empty. Force it, and stop re-checks.
+      "Flourish.fixed_height = true;\n" +
+      "Flourish.checkHeight = function () {};\n" +
+      "window.template.draw();\n" +
+      "</" + S + ">\n</" + "body>\n</" + "html>\n";
+  }
+
+  // ---------- Generate / save / back ----------
+  $("go").addEventListener("click", function () {
+    showError("");
+    var title = $("header").value.trim();
+    var titles = { x: $("xaxis").value.trim(), y: $("yaxis").value.trim() };
+    try {
+      var rows;
+      if (mode === "file") {
+        if (!fileRows) throw new Error("Choose an Excel or CSV file first.");
+        rows = fileRows;
+      } else {
+        var text = $("paste").value;
+        if (!text.trim()) throw new Error("Paste some data first.");
+        rows = parsePasted(text);
+      }
+      var ds = toHistogramDataset(rows);
+    } catch (err) {
+      showError(err.message);
+      return;
+    }
+    showGraph(title, titles, ds, title || (mode === "file" ? fileName.replace(/\.[^.]+$/, "") : ""));
+  });
+
+  // shared = opened from someone's ?id= link: offer Download / Create your own copy
+  function showGraph(title, titles, ds, fileTitle, shared) {
+    current = { title: title, titles: titles, ds: ds };
+    cloudId = null;
+    graphTitle = fileTitle || "graph";
+    graphHtml = buildGraphHtml(title, titles, ds);
+    $("frame").srcdoc = graphHtml;
+    $("cloud").disabled = false;
+    $("cloud").hidden = !!shared;
+    $("back").hidden = !!shared;
+    $("copy").hidden = !shared;
+    setStatus("");
+    $("setup").style.display = "none";
+    $("viewer").classList.add("show");
+  }
+
+  $("save").addEventListener("click", function () {
+    var blob = new Blob([graphHtml], { type: "text/html" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = graphTitle.replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80) + ".html";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  });
+
+  $("back").addEventListener("click", function () {
+    $("frame").srcdoc = "";
+    $("viewer").classList.remove("show");
+    $("setup").style.display = "";
+    if (location.search) history.replaceState(null, "", location.pathname);
+  });
+
+  // Open the editor pre-filled with the shared graph, as pasted data the viewer can change.
+  $("copy").addEventListener("click", function () {
+    var clean = function (s) { return String(s).replace(/[\t\r\n]+/g, " "); };
+    var lines = ["\t" + current.ds.columns.map(clean).join("\t")];
+    current.ds.data.forEach(function (d) {
+      lines.push([d.label].concat(d.value).map(clean).join("\t"));
+    });
+    $("header").value = current.title;
+    $("xaxis").value = current.titles.x;
+    $("yaxis").value = current.titles.y;
+    $("paste").value = lines.join("\n");
+    document.querySelector('#toggle [data-mode="paste"]').click();
+    $("greetings").textContent = "Edit your copy, then Submit.";
+    $("back").click();
+  });
+
+  // ---------- Save to Cloud ----------
+  // 1. Turnstile check  2. Worker signs a one-off upload URL for exactly this many bytes
+  // 3. browser PUTs the JSON straight to Backblaze  4. show the ?id= share link
+  $("cloud").addEventListener("click", function () {
+    if (cloudId) return openShare(cloudId);
+    var body = new Blob([JSON.stringify({
+      v: 1,
+      kind: "histogram",
+      title: current.title,
+      titles: current.titles,
+      columns: current.ds.columns,
+      data: current.ds.data,
+      labelType: current.ds.labelType
+    })], { type: "application/json" });
+
+    $("cloud").disabled = true;
+    setStatus("");
+    turnstileToken()
+      .then(function (token) {
+        setStatus("Uploading…");
+        return api("/graphite/sign", { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: token, size: body.size }) });
+      })
+      .then(function (signed) {
+        return fetch(signed.uploadUrl, { method: "PUT", headers: signed.headers, body: body }).then(function (res) {
+          if (!res.ok) throw new Error("Upload failed (" + res.status + ")");
+          return signed.id;
+        });
+      })
+      .then(function (id) {
+        cloudId = id;
+        setStatus("Saved to cloud");
+        openShare(id);
+      })
+      .catch(function (err) {
+        if (err.message !== "cancelled") setStatus(err.message || "Upload failed", true);
+        else setStatus("");
+      })
+      .then(function () { $("cloud").disabled = false; });
+  });
+
+  var tsWidget = null, tsReject = null;
+  function turnstileToken() {
+    return new Promise(function (resolve, reject) {
+      if (!window.turnstile) return reject(new Error("Verification didn't load — check your connection"));
+      tsReject = reject;
+      $("ts-overlay").classList.add("show");
+      if (tsWidget !== null) turnstile.remove(tsWidget);
+      tsWidget = turnstile.render("#ts-box", {
+        sitekey: TURNSTILE_SITEKEY,
+        callback: function (token) { closeTurnstile(); resolve(token); },
+        "error-callback": function () { closeTurnstile(); reject(new Error("Verification failed — please try again")); }
+      });
+    });
+  }
+  function closeTurnstile() {
+    $("ts-overlay").classList.remove("show");
+    if (tsWidget !== null) { turnstile.remove(tsWidget); tsWidget = null; }
+    tsReject = null;
+  }
+  $("ts-cancel").addEventListener("click", function () {
+    var reject = tsReject;
+    closeTurnstile();
+    if (reject) reject(new Error("cancelled"));
+  });
+
+  function openShare(id) {
+    var link = location.origin + location.pathname + "?id=" + id;
+    $("share-link").value = link;
+    $("share-copy").textContent = "Copy";
+    $("share-overlay").classList.add("show");
+    $("share-link").select();
+  }
+  $("share-copy").addEventListener("click", function () {
+    var link = $("share-link").value;
+    var done = function () { $("share-copy").textContent = "Copied"; };
+    if (navigator.clipboard) navigator.clipboard.writeText(link).then(done, function () { $("share-link").select(); });
+    else { $("share-link").select(); document.execCommand("copy"); done(); }
+  });
+  $("share-close").addEventListener("click", function () { $("share-overlay").classList.remove("show"); });
+
+  function api(path, opts) {
+    return fetch(CLOUD_API + path, opts).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (out) {
+        if (!res.ok) throw new Error(out.error || "Request failed (" + res.status + ")");
+        return out;
+      });
+    }, function () { throw new Error("Couldn't reach the cloud service"); });
+  }
+
+  // ---------- Open a shared graph (?id=...) ----------
+  // ?id=sample is a built-in demo graph, so it loads instantly without the cloud.
+  var SAMPLE = (function () {
+    var rows = [["4.5", 3], ["5", 4], ["5.5", 5], ["6", 8], ["6.5", 14], ["7", 17], ["7.5", 23], ["8", 24],
+                ["8.5", 16], ["9", 15], ["9.5", 9], ["10", 5], ["10.5", 7], ["11", 6], ["11.5", 1]];
+    return {
+      kind: "histogram", title: "Sample", titles: { x: "Shoe size (US)", y: "Number of women" }, labelType: "string",
+      columns: ["Number of women"],
+      data: rows.map(function (r) { return { label: r[0], value: r.slice(1) }; })
+    };
+  })();
+
+  var sharedId = new URLSearchParams(location.search).get("id");
+  if (sharedId === "sample") {
+    var sample = fromSaved(SAMPLE);
+    showGraph(sample.title, sample.titles, sample, sample.title, true);
+  } else if (sharedId) {
+    if (!ID_RE.test(sharedId)) {
+      showError("That share link isn't valid.");
+    } else {
+      $("greetings").textContent = "Loading shared graph…";
+      api("/graphite/load?id=" + sharedId)
+        .then(function (saved) {
+          var ds = fromSaved(saved);
+          showGraph(ds.title, ds.titles, ds, ds.title, true);
+        })
+        .catch(function (err) {
+          $("greetings").textContent = hello + " Upload a spreadsheet or paste data to start.";
+          showError(err.message);
+        });
+    }
+  }
+
+  // Saved files come from other people: keep only the expected shape, as plain strings.
+  // The chart renders titles as HTML, so angle brackets are dropped too.
+  function fromSaved(s) {
+    var str = function (v) { return v == null ? "" : String(v).replace(/[<>]/g, ""); };
+    if (s && s.kind !== "histogram") throw new Error("That link is for a different kind of graph. Open it in Graphite" + (s.kind === "combo" ? " Combo." : "."));
+    if (!s || !Array.isArray(s.columns) || !Array.isArray(s.data)) throw new Error("That shared graph is damaged.");
+    var columns = s.columns.map(str);
+    var data = s.data.filter(function (d) { return d && Array.isArray(d.value); }).map(function (d) {
+      return { label: str(d.label), value: d.value.slice(0, columns.length).map(str) };
+    });
+    if (!columns.length || !data.length) throw new Error("That shared graph is empty.");
+    return {
+      title: str(s.title),
+      titles: { x: str(s.titles && s.titles.x), y: str(s.titles && s.titles.y) },
+      columns: columns, data: data, labelType: s.labelType === "auto" ? "auto" : "string"
+    };
+  }
+
+  // ---------- Sample datasets ----------
+  // One .xlsx per histogram dataset on the CDN (built from official data: A1 = title, A2 = summary,
+  // A3 = source, then a normal table). Picking one runs it through the same checks and
+  // parser as an uploaded file.
+  var SAMPLES_BASE = "https://cdn.zhengjia.dev/graphite/histogram/samples/";
+  // The list between SAMPLES:BEGIN and SAMPLES:END is rewritten by tools/update_samples.py.
+  // v = hash of the data, so updated files get a new URL and skip the CDN's 7-day cache.
+  var SAMPLES = [
+    // SAMPLES:BEGIN
+    { file: "hdb_prices", v: "faca5b6f", title: "HDB resale prices", summary: "7,411 flats sold · Jul 2026 – Sep 2026 · HDB", axes: { x: "Resale price", y: "Number of flats sold" } },
+    { file: "age", v: "a6124dd9", title: "Residents by age & sex", summary: "At end June 2026 · by 5-year age group · SingStat", axes: { x: "Age (years)", y: "Residents" } },
+    { file: "household_income", v: "06269ac3", title: "Household income", summary: "Census 2020 · resident households · SingStat", axes: { x: "Monthly household income from work", y: "Resident households" } },
+    { file: "income", v: "7068a8b7", title: "Income from work", summary: "Census 2020 · employed residents aged 15+ · SingStat", axes: { x: "Gross monthly income from work", y: "Employed residents" } },
+    { file: "household_size", v: "253f85cb", title: "Household size", summary: "Census 2020 · resident households · SingStat", axes: { x: "People in the household", y: "Resident households" } }
+    // SAMPLES:END
+  ];
+  var sampleBooks = {};
+
+  function sampleUrl(s) { return SAMPLES_BASE + s.file + ".xlsx" + (s.v ? "?v=" + s.v : ""); }
+
+  function loadSample(s) {
+    if (sampleBooks[s.file]) return Promise.resolve(sampleBooks[s.file]);
+    return fetch(sampleUrl(s))
+      .then(function (res) {
+        if (!res.ok) throw new Error();
+        return res.arrayBuffer();
+      })
+      .then(function (buf) {
+        return (sampleBooks[s.file] = readXlsx(new Uint8Array(buf)));
+      })
+      .catch(function () { throw new Error("Couldn't load that sample. Check your connection and try again."); });
+  }
+
+  // build the list once; it's static
+  SAMPLES.forEach(function (s) {
+    var row = document.createElement("div");
+    row.className = "sample-row";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sample";
+    var b = document.createElement("b"), span = document.createElement("span");
+    b.textContent = s.title;
+    span.textContent = s.summary;
+    btn.appendChild(b);
+    btn.appendChild(span);
+    btn.addEventListener("click", function () { openSample(s, btn); });
+    var dl = document.createElement("a");
+    dl.className = "sample-dl";
+    dl.href = sampleUrl(s);
+    dl.textContent = ".xlsx";
+    dl.title = "Download " + s.file + ".xlsx";
+    dl.setAttribute("aria-label", "Download " + s.title + " as Excel");
+    row.appendChild(btn);
+    row.appendChild(dl);
+    $("samples-list").appendChild(row);
+  });
+
+  $("samples-open").addEventListener("click", function () {
+    $("samples-msg").textContent = "";
+    $("samples-overlay").classList.add("show");
+  });
+  $("samples-close").addEventListener("click", function () { $("samples-overlay").classList.remove("show"); });
+
+  function openSample(s, btn) {
+    var span = btn.querySelector("span");
+    span.textContent = "Loading…";
+    $("samples-msg").textContent = "";
+    loadSample(s)
+      .then(function (wb) {
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var title = cellText(ws.A1) || s.title;
+        var ds = toHistogramDataset(sheetToRows(ws));
+        $("samples-overlay").classList.remove("show");
+        showError("");
+        var axes = s.axes || {};
+        showGraph(title, { x: axes.x || "", y: axes.y || "" }, ds, s.file);
+      })
+      .catch(function (err) { $("samples-msg").textContent = err.message; })
+      .then(function () { span.textContent = s.summary; });
+  }
+
+  function setStatus(msg, isError) {
+    $("status").textContent = msg;
+    $("status").classList.toggle("error", !!isError);
+  }
+  function showError(msg) { $("error").textContent = msg; }
+})();
+</script>
+</body>
+</html>
